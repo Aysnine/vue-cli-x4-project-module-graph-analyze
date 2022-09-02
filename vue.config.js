@@ -42,8 +42,10 @@ class AccessDependenciesPlugin {
                     ...i,
                     modulePath: i.modulePath
                       .replace(currentProjectPath, "")
-                      .replace("\\", "/"), // for windows
-                    issuerPath: i.issuerPath.replace(currentProjectPath, ""),
+                      .replaceAll("\\", "/"), // for windows
+                    issuerPath: i.issuerPath
+                      .replace(currentProjectPath, "")
+                      .replaceAll("\\", "/"), // for windows
                   };
                 })
                 .filter((i) => {

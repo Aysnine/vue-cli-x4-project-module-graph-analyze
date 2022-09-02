@@ -37,6 +37,7 @@ class AccessDependenciesPlugin {
 
               results
                 .filter((i) => i.modulePath && i.issuerPath)
+                .filter((i) => i.modulePath !== i.issuerPath)
                 .map((i) => {
                   return {
                     ...i,

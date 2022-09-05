@@ -103,10 +103,15 @@
 </template>
 
 <script>
+import { fetchUserName } from "../api/user";
+
 export default {
   name: "HelloWorld",
   props: {
     msg: String,
+  },
+  mounted() {
+    fetchUserName();
   },
 };
 </script>

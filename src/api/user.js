@@ -6,9 +6,3 @@ export function fetchUserInfo() {
 export function fetchUserName() {
   return fetch("/user/name");
 }
-
-export default {
-  fetchUserName() {
-    return fetch("/user/name");
-  },
-};

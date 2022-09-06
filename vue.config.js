@@ -15,84 +15,104 @@ class AccessDependenciesPlugin {
             ) {
               console.log("==================== START");
 
-              // console.log(
-              //   rawModules.forEach((i) => {
-              //     console.log(i.resource);
-              //     console.log(i.issuer?.dependencies?.map((i) => i.name));
-              //   })
-              // );
-
               const currentProjectPath = path.resolve("./");
+              const reducePath = (absPath) =>
+                absPath.replace(currentProjectPath, "");
+              const normal = (p) => (p ? p.replaceAll("\\", "/") : p);
 
-              const modules = rawModules
-                .map((module) => {
-                  const modulePath = module.resource;
-                  const issuerPath = module.issuer?.resource;
+              const requestModule = rawModules.find((module) => {
+                return normal(module.resource)?.endsWith("utils/request.js");
+              });
 
-                  let depends = [];
-                  if (modulePath && issuerPath) {
-                    depends = module.issuer.dependencies.filter(
-                      (i) => module.rawRequest === i.userRequest
-                    );
-                  }
+              if (!requestModule) {
+                throw new Error("Can't find request module!");
+              }
 
-                  return {
-                    modulePath,
-                    issuerPath,
-                    issuerDetail: depends
-                      .map((i) => ({ name: i.name }))
-                      .filter((i) => i.name || i.id),
-                  };
-                })
-                .filter((i) => i.modulePath && i.issuerPath)
-                .filter((i) => i.modulePath !== i.issuerPath)
-                .map((i) => {
-                  return {
-                    ...i,
-                    modulePath: i.modulePath
-                      .replace(currentProjectPath, "")
-                      .replaceAll("\\", "/"), // for windows
-                    issuerPath: i.issuerPath
-                      .replace(currentProjectPath, "")
-                      .replaceAll("\\", "/"), // for windows
-                  };
-                })
-                .filter((i) => {
-                  return ![
-                    // excludes
-                    i.modulePath.startsWith("/node_modules"),
-                    i.modulePath.startsWith("/src/assets"),
-                  ].some(Boolean);
-                });
-
-              // * find relation: page to api-fn
-              modules
-                .filter(
-                  (i) =>
-                    i.modulePath.includes("/api/") &&
-                    i.issuerDetail.some((i) => i.name)
-                )
-                .map((i) => {
-                  const rev = (ps) => {
-                    const parent = modules.find(
-                      (i) => i.modulePath === ps[ps.length - 1].issuerPath
-                    );
-                    return parent ? rev([...ps, parent]) : ps;
-                  };
-                  return rev([i]);
-                })
-                .map((i) => i.reverse())
-                .map((i) => {
-                  const page = i.find((m) => m.modulePath.endsWith(".vue"));
-                  return [page, i[i.length - 1]];
-                })
-                .forEach(([pageModule, apiModule]) => {
-                  console.log(
-                    pageModule.modulePath,
-                    apiModule.modulePath,
-                    apiModule.issuerDetail.map((i) => i.name)
+              const apiModules = rawModules
+                .filter((module) => {
+                  return (
+                    normal(module.resource)?.includes("/api/") &&
+                    normal(module.resource)?.endsWith(".js")
                   );
+                })
+                .filter((module) => {
+                  return module.dependencies?.find((dep) => {
+                    return (
+                      normal(dep.module?.resource) ===
+                      normal(requestModule.resource)
+                    );
+                  });
                 });
+
+              const routeModules = rawModules
+                .filter((module) => {
+                  return (
+                    normal(module.resource)?.includes("/router/") &&
+                    normal(module.resource)?.endsWith(".js")
+                  );
+                })
+                .filter((module) => {
+                  return module.blocks?.find((block) => {
+                    return block.dependencies.find((dep) => {
+                      return (
+                        normal(dep.module?.resource)?.includes("/pages/") &&
+                        normal(dep.module?.resource)?.endsWith(".vue")
+                      );
+                    });
+                  });
+                });
+
+              const pageModules = routeModules
+                .map((module) => {
+                  return module.blocks
+                    ?.map((block) => {
+                      return block.dependencies.filter((dep) => {
+                        return (
+                          normal(dep.module?.resource)?.includes("/pages/") &&
+                          normal(dep.module?.resource)?.endsWith(".vue")
+                        );
+                      });
+                    })
+                    .flat();
+                })
+                .flat()
+                .map((m) => m.module);
+
+              pageModules.forEach((module) => {
+                console.log(reducePath(module.resource));
+                const matched = [];
+
+                function rev(module, dep) {
+                  if (!module) return;
+                  if (
+                    apiModules.find((m) => m.resource === module.resource) &&
+                    dep?.name
+                  ) {
+                    const label = `${reducePath(module.resource)}:${dep.name}`;
+
+                    if (!matched.find((i) => i.label === label)) {
+                      // !
+                      matched.push({
+                        label,
+
+                        modulePath: reducePath(module.resource),
+                        fnName: dep.name,
+
+                        dep,
+                        module,
+                      });
+                    }
+                  } else {
+                    module.dependencies.map((i) => rev(i.module, i));
+                  }
+                }
+
+                rev(module);
+
+                matched.map((i) => {
+                  console.log(`\t\t${i.modulePath} | ${i.fnName}`);
+                });
+              });
 
               console.log("==================== END");
             }

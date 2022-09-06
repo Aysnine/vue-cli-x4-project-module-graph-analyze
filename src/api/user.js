@@ -1,3 +1,5 @@
+import fetch from "../utils/request";
+
 export function fetchUserInfo() {
   // #API USER_PROFILE
   return fetch("/user/profile");

@@ -13,6 +13,7 @@ class AccessDependenciesPlugin {
                 (i) => i.resource && i.resource.endsWith("main.js")
               )
             ) {
+              const startTime = Date.now();
               console.log("==================== START");
 
               const currentProjectPath = path.resolve("./");
@@ -27,6 +28,9 @@ class AccessDependenciesPlugin {
               if (!requestModule) {
                 throw new Error("Can't find request module!");
               }
+
+              console.log(`[At ${(Date.now() - startTime) / 1000}s]`);
+              console.log("==================== REQUEST MODULE READY");
 
               const apiModules = rawModules
                 .filter((module) => {
@@ -43,6 +47,12 @@ class AccessDependenciesPlugin {
                     );
                   });
                 });
+
+              console.log(`[At ${(Date.now() - startTime) / 1000}s]`);
+              console.log(
+                "==================== API MODULES READY",
+                apiModules.length
+              );
 
               const routeModules = rawModules
                 .filter((module) => {
@@ -62,6 +72,12 @@ class AccessDependenciesPlugin {
                   });
                 });
 
+              console.log(`[At ${(Date.now() - startTime) / 1000}s]`);
+              console.log(
+                "==================== ROUTE MODULES READY",
+                routeModules.length
+              );
+
               const pageModules = routeModules
                 .map((module) => {
                   return module.blocks
@@ -78,21 +94,37 @@ class AccessDependenciesPlugin {
                 .flat()
                 .map((m) => m.module);
 
-              pageModules.forEach((module) => {
+              console.log(`[At ${(Date.now() - startTime) / 1000}s]`);
+              console.log(
+                "==================== PAGE MODULES READY",
+                pageModules.length
+              );
+
+              for (const module of pageModules) {
                 console.log(reducePath(module.resource));
                 const matched = [];
 
-                function rev(module, dep) {
-                  if (!module) return;
+                const rev = (module, dep, parentResourceValues) => {
+                  if (!module || !module.resource) return;
+
+                  if (
+                    parentResourceValues.filter((i) => i === module.resource)
+                      .length > 2
+                  ) {
+                    console.log("ops! deep path: ", parentResourceValues);
+                    return;
+                  }
+
                   if (
                     apiModules.find((m) => m.resource === module.resource) &&
                     dep?.name
                   ) {
                     const label = `${reducePath(module.resource)}:${dep.name}`;
+                    const target = matched.find((i) => i.label === label);
 
-                    if (!matched.find((i) => i.label === label)) {
+                    if (!target) {
                       // !
-                      matched.push({
+                      const record = {
                         label,
 
                         modulePath: reducePath(module.resource),
@@ -100,19 +132,50 @@ class AccessDependenciesPlugin {
 
                         dep,
                         module,
-                      });
+
+                        from: [parentResourceValues],
+                      };
+                      matched.push(record);
+                    } else {
+                      target.from.push(parentResourceValues);
                     }
+
+                    console.log(`[Hit deep: ${parentResourceValues}]`);
                   } else {
-                    module.dependencies.map((i) => rev(i.module, i));
+                    const deps = module.dependencies
+                      .filter((i) => i.name !== "render")
+                      .filter((i) => i.name !== "staticRenderFns")
+                      .filter(
+                        (i) =>
+                          i.constructor.name ===
+                          "HarmonyImportSpecifierDependency"
+                      );
+
+                    if (deps.length) {
+                      deps.forEach((i) => {
+                        rev(i.module, i, [
+                          ...parentResourceValues,
+                          module.resource,
+                        ]);
+                      });
+                    } else {
+                      console.log(`[Miss deep: ${parentResourceValues}]`);
+                    }
                   }
-                }
+                };
 
-                rev(module);
+                rev(module, null, []);
 
-                matched.map((i) => {
-                  console.log(`\t\t${i.modulePath} | ${i.fnName}`);
+                matched.sort(
+                  (a, b) => a.modulePath.length - b.modulePath.length
+                );
+
+                matched.forEach(({ modulePath, fnName, from }) => {
+                  console.log(`\t\t${modulePath} | ${fnName} | ${from.length}`);
                 });
-              });
+
+                console.log(`[At ${(Date.now() - startTime) / 1000}s]`);
+              }
 
               console.log("==================== END");
             }

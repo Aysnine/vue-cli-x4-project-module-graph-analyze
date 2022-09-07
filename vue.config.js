@@ -16,10 +16,10 @@ class AccessDependenciesPlugin {
               const startTime = Date.now();
               console.log("==================== START");
 
-              const currentProjectPath = path.resolve("./");
+              const normal = (p) => (p ? p.replaceAll("\\", "/") : p);
+              const currentProjectPath = normal(path.resolve("./"));
               const reducePath = (absPath) =>
                 absPath.replace(currentProjectPath, "");
-              const normal = (p) => (p ? p.replaceAll("\\", "/") : p);
 
               const requestModule = rawModules.find((module) => {
                 return normal(module.resource)?.endsWith("utils/request.js");
@@ -101,17 +101,25 @@ class AccessDependenciesPlugin {
               );
 
               for (const module of pageModules) {
-                console.log(reducePath(module.resource));
+                const pageModulePath = reducePath(normal(module.resource));
+
+                console.log(pageModulePath);
+
                 const matched = [];
 
                 const rev = (module, dep, parentResourceValues) => {
                   if (!module || !module.resource) return;
 
+                  const modulePath = reducePath(normal(module.resource));
+
+                  if (modulePath.includes("/utils/")) return;
+                  if (modulePath.includes("/i18n/")) return;
+
                   if (
                     parentResourceValues.filter((i) => i === module.resource)
                       .length > 2
                   ) {
-                    console.log("ops! deep path: ", parentResourceValues);
+                    // console.log("ops! deep path: ", parentResourceValues);
                     return;
                   }
 
@@ -119,7 +127,7 @@ class AccessDependenciesPlugin {
                     apiModules.find((m) => m.resource === module.resource) &&
                     dep?.name
                   ) {
-                    const label = `${reducePath(module.resource)}:${dep.name}`;
+                    const label = `${pageModulePath}:${dep.name}`;
                     const target = matched.find((i) => i.label === label);
 
                     if (!target) {
@@ -127,7 +135,7 @@ class AccessDependenciesPlugin {
                       const record = {
                         label,
 
-                        modulePath: reducePath(module.resource),
+                        modulePath,
                         fnName: dep.name,
 
                         dep,
@@ -160,10 +168,10 @@ class AccessDependenciesPlugin {
                         ]);
                       });
                     } else {
-                      console.log(
-                        `[Miss deep: ${parentResourceValues.length}]`,
-                        parentResourceValues
-                      );
+                      // console.log(
+                      //   `[Miss deep: ${parentResourceValues.length}]`,
+                      //   parentResourceValues
+                      // );
                     }
                   }
                 };

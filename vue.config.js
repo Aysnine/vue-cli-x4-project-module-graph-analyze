@@ -140,7 +140,7 @@ class AccessDependenciesPlugin {
                       target.from.push(parentResourceValues);
                     }
 
-                    console.log(`[Hit deep: ${parentResourceValues}]`);
+                    console.log(`[Hit deep: ${parentResourceValues.length}]`);
                   } else {
                     const deps = module.dependencies
                       .filter((i) => i.name !== "render")
@@ -159,7 +159,9 @@ class AccessDependenciesPlugin {
                         ]);
                       });
                     } else {
-                      console.log(`[Miss deep: ${parentResourceValues}]`);
+                      console.log(
+                        `[Miss deep: ${parentResourceValues.length}]`
+                      );
                     }
                   }
                 };

@@ -1,4 +1,5 @@
 const path = require("path");
+const { default: traverse } = require("@babel/traverse");
 
 class AccessDependenciesPlugin {
   apply(compiler) {
@@ -29,7 +30,7 @@ class AccessDependenciesPlugin {
                 throw new Error("Can't find request module!");
               }
 
-              console.log(`[At ${(Date.now() - startTime) / 1000}s]`);
+              // console.log(`[At ${(Date.now() - startTime) / 1000}s]`);
               console.log("==================== REQUEST MODULE READY");
 
               const apiModules = rawModules
@@ -48,7 +49,7 @@ class AccessDependenciesPlugin {
                   });
                 });
 
-              console.log(`[At ${(Date.now() - startTime) / 1000}s]`);
+              // console.log(`[At ${(Date.now() - startTime) / 1000}s]`);
               console.log(
                 "==================== API MODULES READY",
                 apiModules.length
@@ -72,7 +73,7 @@ class AccessDependenciesPlugin {
                   });
                 });
 
-              console.log(`[At ${(Date.now() - startTime) / 1000}s]`);
+              // console.log(`[At ${(Date.now() - startTime) / 1000}s]`);
               console.log(
                 "==================== ROUTE MODULES READY",
                 routeModules.length
@@ -94,16 +95,128 @@ class AccessDependenciesPlugin {
                 .flat()
                 .map((m) => m.module);
 
-              console.log(`[At ${(Date.now() - startTime) / 1000}s]`);
+              const routesInfo = []; // [{ moduleRawImportString, routeName }]
+
+              routeModules.forEach((routeModule) => {
+                routeModule.parser.hooks.program.tap(
+                  "AccessDependenciesPlugin",
+                  (ast) => {
+                    const astRecursion = (rootNode, rootPath = undefined) => {
+                      traverse(
+                        rootNode,
+                        {
+                          ObjectExpression(path) {
+                            const componentNode = path.node.properties.find(
+                              (i) => i.key.name === "component"
+                            );
+                            const nameNode = path.node.properties.find(
+                              (i) => i.key.name === "name"
+                            );
+                            const childrenNode = path.node.properties.find(
+                              (i) => i.key.name === "children"
+                            );
+
+                            if (childrenNode) {
+                              astRecursion(childrenNode.value, path);
+                            }
+
+                            // console.log(
+                            //   "xxx",
+                            //   path.node.properties.map(
+                            //     (i) => `${i.key.name}: ${i.value.value}`
+                            //   )
+                            // );
+
+                            if (componentNode && nameNode) {
+                              const componentValue = componentNode.value;
+
+                              if (
+                                componentValue.type ===
+                                  "ArrowFunctionExpression" &&
+                                componentValue.body.type === "CallExpression" &&
+                                componentValue.body.callee.type === "Import"
+                              ) {
+                                const moduleRawImportString =
+                                  componentValue.body.arguments[0].value;
+
+                                let routeName = null;
+                                const nameValue = nameNode.value;
+                                if (nameValue.type === "Literal") {
+                                  routeName = nameValue.value;
+                                } else if (nameValue.type === "Identifier") {
+                                  routeName = nameValue.name;
+                                } else if (
+                                  nameValue.type === "MemberExpression"
+                                ) {
+                                  routeName = nameValue.property.name;
+                                } else {
+                                  console.log(nameValue.type);
+                                }
+
+                                if (moduleRawImportString && routeName) {
+                                  routesInfo.push({
+                                    moduleRawImportString,
+                                    routeName,
+                                  });
+                                } else {
+                                  // ...
+                                }
+                              } else {
+                                // ...
+                              }
+                            }
+                          },
+                        },
+                        {},
+                        rootPath
+                      );
+                    };
+
+                    astRecursion(ast);
+                  }
+                );
+
+                routeModule.parser.parse(routeModule._source.source(), {
+                  current: routeModule,
+                  module: routeModule,
+                  compilation: compilation,
+                  options: routeModule.parser.options,
+                });
+              });
+
+              pageModules.forEach((pageModule) => {
+                const routeInfo = routesInfo.find(
+                  (routes) =>
+                    routes.moduleRawImportString === pageModule.rawRequest
+                );
+
+                console.log(
+                  reducePath(pageModule.resource),
+                  routeInfo ? routeInfo.routeName : "❌ Route name not found ❌"
+                );
+              });
+
+              // console.log(`[At ${(Date.now() - startTime) / 1000}s]`);
               console.log(
                 "==================== PAGE MODULES READY",
                 pageModules.length
               );
 
+              const apiFnSourceMeta = new Map(); // { '/src/api/x.js-postX': { magicComments: [{ ... }] } }
+
               for (const module of pageModules) {
                 const pageModulePath = reducePath(normal(module.resource));
 
-                console.log(pageModulePath);
+                const routeInfo = routesInfo.find(
+                  (i) => i.moduleRawImportString === module.rawRequest
+                );
+
+                console.log(
+                  pageModulePath,
+                  routeInfo
+                    ? `[${routeInfo.routeName}]`
+                    : "❌ Route name not found ❌"
+                );
 
                 const matched = [];
 
@@ -182,14 +295,92 @@ class AccessDependenciesPlugin {
                   (a, b) => a.modulePath.length - b.modulePath.length
                 );
 
-                matched.forEach(({ modulePath, fnName, from }) => {
-                  console.log(`\t\t${modulePath} | ${fnName} | ${from.length}`);
+                matched.forEach((item) => {
+                  const { modulePath, fnName, module } = item;
+                  const fnKey = `${modulePath}-${fnName}`;
+
+                  if (apiFnSourceMeta.has(fnKey)) {
+                    item.apiFnSourceMeta = apiFnSourceMeta.get(fnKey);
+                  } else {
+                    const meta = {
+                      magicComments: [],
+                    };
+                    const sourceDep = module.dependencies.find(
+                      (i) =>
+                        i.constructor.name ===
+                          "HarmonyExportSpecifierDependency" &&
+                        i.name === fnName
+                    );
+                    const startPos = sourceDep.loc.start;
+                    const endPos = sourceDep.loc.end;
+                    const sourceFileContent = module._source._value;
+
+                    const findIndexByPos = (content, { line, column }) => {
+                      if (line === 0) return column;
+
+                      let lastIndex = 0;
+                      for (let index = 1; index < line; index++) {
+                        lastIndex = content.indexOf("\n", lastIndex + 1);
+                      }
+                      return lastIndex + column + 1;
+                    };
+
+                    const startIndex = findIndexByPos(
+                      sourceFileContent,
+                      startPos
+                    );
+                    const endIndex = findIndexByPos(sourceFileContent, endPos);
+
+                    const fnSourceCode = sourceFileContent.slice(
+                      startIndex,
+                      endIndex
+                    );
+
+                    const magicRawComments =
+                      fnSourceCode.match(/API\s*\[(.*?)\]/g);
+
+                    if (magicRawComments) {
+                      const magicComments = magicRawComments.map((i) => {
+                        const rawString = i.split(/\[|\]/)[1];
+                        const [method, url, shortCode, name] =
+                          rawString.split(/\s+/);
+                        return {
+                          method,
+                          url,
+                          shortCode,
+                          name,
+                        };
+                      });
+                      meta.magicComments = magicComments;
+                    }
+
+                    item.apiFnSourceMeta = meta;
+                    apiFnSourceMeta.set(fnKey, meta);
+                  }
                 });
 
-                console.log(`[At ${(Date.now() - startTime) / 1000}s]`);
+                matched.forEach(
+                  ({ modulePath, fnName, from, apiFnSourceMeta }) => {
+                    console.log(
+                      `\t\t${modulePath} | ${fnName}(${from.length} times) | ${
+                        apiFnSourceMeta.magicComments.length
+                          ? apiFnSourceMeta.magicComments
+                              .map(
+                                (i) =>
+                                  `[${i.method} ${i.url} ${i.shortCode} ${i.name}] ${routeInfo.routeName}_${i.shortCode}`
+                              )
+                              .join(" ")
+                          : "❌ Need API magic comments ❌"
+                      }`
+                    );
+                  }
+                );
+
+                // console.log(`[At ${(Date.now() - startTime) / 1000}s]`);
               }
 
               console.log("==================== END");
+              console.log(`[At ${(Date.now() - startTime) / 1000}s]`);
             }
           }
         );

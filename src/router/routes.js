@@ -1,6 +1,7 @@
 import about from "./about";
 import { NAMES } from "./names";
 import nested from "./nested";
+import single from "./single";
 
 const NAME = "Home";
 
@@ -12,6 +13,7 @@ export default [
   },
   ...about,
   ...nested,
+  single,
   {
     path: "/chore",
     name: NAMES.CHORE_NAME,

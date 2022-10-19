@@ -130,14 +130,23 @@ class AccessDependenciesPlugin {
                             if (componentNode && nameNode) {
                               const componentValue = componentNode.value;
 
-                              if (
-                                componentValue.type ===
-                                  "ArrowFunctionExpression" &&
-                                componentValue.body.type === "CallExpression" &&
-                                componentValue.body.callee.type === "Import"
-                              ) {
-                                const moduleRawImportString =
-                                  componentValue.body.arguments[0].value;
+                              if (componentValue) {
+                                let moduleRawImportString = "";
+
+                                traverse(
+                                  componentNode.value,
+                                  {
+                                    CallExpression(path) {
+                                      if (path.node.callee.type === "Import") {
+                                        moduleRawImportString =
+                                          path.node.arguments[0].value;
+                                        path.stop();
+                                      }
+                                    },
+                                  },
+                                  {},
+                                  path
+                                );
 
                                 let routeName = null;
                                 const nameValue = nameNode.value;
